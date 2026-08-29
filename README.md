@@ -4,6 +4,7 @@ Authentication and role-access foundation for:
 
 - **RSB-4 — FR-01 — User Logs In and Out**
 - **RSB-5 — FR-02 — User Accesses Role-Appropriate Functions**
+- **RSB-6 — FR-03 — Customer Creates a Repair Booking**
 
 ## Setup
 
@@ -30,6 +31,9 @@ Open <http://127.0.0.1:5000>. The application has no public account creation or
 password recovery functionality; use one of the two pre-provisioned accounts.
 Customers are directed to `/customer`, while Repair Staff are directed to
 `/staff`. Attempts to access the other role's area return HTTP 403 Forbidden.
+Customers can create a booking at `/customer/bookings/create` using the frozen
+Device Category options Phone, Tablet, or Laptop. New bookings are associated
+with the authenticated Customer and start in the Submitted state.
 
 ## Test
 

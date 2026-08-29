@@ -48,23 +48,45 @@ h1 {
   background: #ffedeb;
 }
 
+.success {
+  padding: 0.75rem;
+  border-radius: 0.25rem;
+  color: #216e4e;
+  background: #dcfff1;
+}
+
+.field-error {
+  margin: 0.35rem 0 0;
+  color: #ae2a19;
+  font-size: 0.875rem;
+}
+
 label {
   display: block;
   margin: 1rem 0 0.35rem;
   font-weight: 700;
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid #8590a2;
   border-radius: 0.25rem;
+  background: #fff;
   font: inherit;
 }
 
-input:focus {
+input:focus,
+select:focus,
+textarea:focus {
   border-color: #0c66e4;
   outline: 2px solid #85b8ff;
+}
+
+textarea {
+  resize: vertical;
 }
 
 button {
@@ -82,6 +104,35 @@ button {
 
 button:hover {
   background: #0055cc;
+}
+
+.primary-action,
+.secondary-action {
+  display: block;
+  width: 100%;
+  margin-top: 1.5rem;
+  padding: 0.75rem;
+  border-radius: 0.25rem;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.primary-action {
+  color: #fff;
+  background: #0c66e4;
+}
+
+.secondary-action {
+  border: 1px solid #8590a2;
+  color: #172b4d;
+  background: #fff;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
 }
 
 dl {
@@ -102,4 +153,3 @@ dd {
   margin: 0.25rem 0 0;
   font-weight: 700;
 }
-
