@@ -123,6 +123,24 @@ class AuthenticationTests(unittest.TestCase):
             check_password_hash(stored_hashes["staff1"], self.STAFF_PASSWORD)
         )
 
+    def test_9_stale_user_session_is_cleared_and_redirected_to_login(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        with self.client.session_transaction() as current_session:
+            self.assertIn("user_id", current_session)
+            user_id = current_session["user_id"]
+
+        with self.app.app_context():
+            database = get_db()
+            database.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            database.commit()
+
+        response = self.client.get("/", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+        with self.client.session_transaction() as current_session:
+            self.assertEqual(dict(current_session), {})
+
 
 if __name__ == "__main__":
     unittest.main()
