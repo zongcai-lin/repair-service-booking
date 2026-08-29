@@ -25,6 +25,31 @@ def create_app(test_config=None):
 
     init_db_app(app)
 
+    def load_current_user():
+        user_id = session.get("user_id")
+        if user_id is None:
+            return None
+
+        user = get_db().execute(
+            "SELECT id, username, role FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if user is None:
+            session.clear()
+        return user
+
+    def show_role_area(required_role, area_title):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+        if user["role"] != required_role:
+            return render_template("access_denied.html"), 403
+        return render_template(
+            "authenticated.html",
+            area_title=area_title,
+            user=user,
+        )
+
     @app.route("/login", methods=("GET", "POST"))
     def login():
         if request.method == "POST":
@@ -53,19 +78,22 @@ def create_app(test_config=None):
 
     @app.get("/")
     def index():
-        user_id = session.get("user_id")
-        if user_id is None:
-            return redirect(url_for("login"))
-
-        user = get_db().execute(
-            "SELECT id, username, role FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        user = load_current_user()
         if user is None:
-            session.clear()
             return redirect(url_for("login"))
+        if user["role"] == "Customer":
+            return redirect(url_for("customer"))
+        if user["role"] == "Repair Staff":
+            return redirect(url_for("staff"))
+        return render_template("access_denied.html"), 403
 
-        return render_template("authenticated.html", user=user)
+    @app.get("/customer")
+    def customer():
+        return show_role_area("Customer", "Customer Area")
+
+    @app.get("/staff")
+    def staff():
+        return show_role_area("Repair Staff", "Repair Staff Area")
 
     @app.post("/logout")
     def logout():
@@ -77,4 +105,3 @@ def create_app(test_config=None):
 
 if __name__ == "__main__":
     create_app().run()
-

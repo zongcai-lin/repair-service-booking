@@ -141,6 +141,79 @@ class AuthenticationTests(unittest.TestCase):
         with self.client.session_transaction() as current_session:
             self.assertEqual(dict(current_session), {})
 
+    def test_10_customer_login_redirects_to_customer_area(self):
+        response = self.client.post(
+            "/login",
+            data={"username": "customer1", "password": self.CUSTOMER_PASSWORD},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/")
+
+        response = self.client.get("/", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/customer")
+
+        response = self.client.get("/customer")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Customer Area", response.data)
+
+    def test_11_staff_login_redirects_to_staff_area(self):
+        response = self.client.post(
+            "/login",
+            data={"username": "staff1", "password": self.STAFF_PASSWORD},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/")
+
+        response = self.client.get("/", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/staff")
+
+        response = self.client.get("/staff")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Repair Staff Area", response.data)
+
+    def test_12_customer_cannot_access_staff_area(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        response = self.client.get("/staff")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b"Access denied", response.data)
+
+    def test_13_staff_cannot_access_customer_area(self):
+        self.login("staff1", self.STAFF_PASSWORD)
+        response = self.client.get("/customer")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b"Access denied", response.data)
+
+    def test_14_unauthenticated_customer_area_redirects_to_login(self):
+        response = self.client.get("/customer", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+    def test_15_unauthenticated_staff_area_redirects_to_login(self):
+        response = self.client.get("/staff", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+    def test_16_logout_makes_each_role_area_inaccessible(self):
+        role_cases = (
+            ("customer1", self.CUSTOMER_PASSWORD, "/customer"),
+            ("staff1", self.STAFF_PASSWORD, "/staff"),
+        )
+        for username, password, protected_path in role_cases:
+            with self.subTest(username=username):
+                self.login(username, password)
+                self.client.post("/logout")
+
+                with self.client.session_transaction() as current_session:
+                    self.assertEqual(dict(current_session), {})
+
+                response = self.client.get(protected_path, follow_redirects=False)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.headers["Location"], "/login")
+
 
 if __name__ == "__main__":
     unittest.main()
