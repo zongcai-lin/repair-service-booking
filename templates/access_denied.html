@@ -3,25 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ area_title }} | Repair Service Booking</title>
+    <title>Access Denied | Repair Service Booking</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
     <main class="card">
       <p class="eyebrow">Repair Service Booking</p>
-      <h1>{{ area_title }}</h1>
-      <p class="muted">Logged in successfully</p>
-
-      <dl>
-        <div>
-          <dt>Signed in as</dt>
-          <dd>{{ user['username'] }}</dd>
-        </div>
-        <div>
-          <dt>Role</dt>
-          <dd>{{ user['role'] }}</dd>
-        </div>
-      </dl>
+      <h1>Access denied</h1>
+      <p>You do not have permission to access this area.</p>
 
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit">Log Out</button>
@@ -29,3 +18,4 @@
     </main>
   </body>
 </html>
+
