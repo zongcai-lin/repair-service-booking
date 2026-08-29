@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Authenticated | Repair Service Booking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="card">
+      <p class="eyebrow">Repair Service Booking</p>
+      <h1>Logged in successfully</h1>
+
+      <dl>
+        <div>
+          <dt>Username</dt>
+          <dd>{{ user['username'] }}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>{{ user['role'] }}</dd>
+        </div>
+      </dl>
+
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit">Log Out</button>
+      </form>
+    </main>
+  </body>
+</html>
+
