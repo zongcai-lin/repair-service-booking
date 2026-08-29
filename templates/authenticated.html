@@ -12,6 +12,10 @@
       <h1>{{ area_title }}</h1>
       <p class="muted">Logged in successfully</p>
 
+      {% if success_message %}
+        <p class="success" role="status">{{ success_message }}</p>
+      {% endif %}
+
       <dl>
         <div>
           <dt>Signed in as</dt>
@@ -22,6 +26,10 @@
           <dd>{{ user['role'] }}</dd>
         </div>
       </dl>
+
+      {% if show_create_booking %}
+        <a class="primary-action" href="{{ url_for('create_booking') }}">Create Booking</a>
+      {% endif %}
 
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit">Log Out</button>

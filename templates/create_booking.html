@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create Booking | Repair Service Booking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="card">
+      <p class="eyebrow">Repair Service Booking</p>
+      <h1>Create Booking</h1>
+      <p class="muted">Signed in as {{ user['username'] }}</p>
+
+      <form method="post" action="{{ url_for('create_booking') }}">
+        <label for="device_category">Device Category *</label>
+        <select id="device_category" name="device_category" required>
+          <option value="">Select a category</option>
+          {% for category in categories %}
+            <option value="{{ category }}"{% if form_values['device_category'] == category %} selected{% endif %}>{{ category }}</option>
+          {% endfor %}
+        </select>
+        {% if errors.get('device_category') %}
+          <p class="field-error" role="alert">{{ errors['device_category'] }}</p>
+        {% endif %}
+
+        <label for="device_make_model">Device Make / Model *</label>
+        <input id="device_make_model" name="device_make_model" type="text" value="{{ form_values['device_make_model'] }}" required>
+        {% if errors.get('device_make_model') %}
+          <p class="field-error" role="alert">{{ errors['device_make_model'] }}</p>
+        {% endif %}
+
+        <label for="issue_description">Issue Description *</label>
+        <textarea id="issue_description" name="issue_description" rows="5" required>{{ form_values['issue_description'] }}</textarea>
+        {% if errors.get('issue_description') %}
+          <p class="field-error" role="alert">{{ errors['issue_description'] }}</p>
+        {% endif %}
+
+        <div class="actions">
+          <a class="secondary-action" href="{{ url_for('customer') }}">Cancel</a>
+          <button type="submit">Submit Booking</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>
+
