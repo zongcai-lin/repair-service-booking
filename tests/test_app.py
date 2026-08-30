@@ -812,6 +812,260 @@ class AuthenticationTests(unittest.TestCase):
         response = self.client.get(f"/customer/bookings/{booking_id}")
         self.assertIn(b"Rejected", response.data)
 
+    def test_61_staff_can_access_repair_progress_workflow(self):
+        self.login("staff1", self.STAFF_PASSWORD)
+        response = self.client.get("/staff/bookings/progress")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Repair Progress", response.data)
+
+    def test_62_unauthenticated_progress_access_redirects_to_login(self):
+        response = self.client.get("/staff/bookings/progress", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+    def test_63_customer_cannot_access_staff_progress_workflow(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        response = self.client.get("/staff/bookings/progress")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b"Access denied", response.data)
+
+    def test_64_accepted_booking_exposes_start_repair(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.get(f"/staff/bookings/{booking_id}/progress")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Start Repair", response.data)
+        self.assertNotIn(b"Complete Repair", response.data)
+
+    def test_65_staff_can_start_repair_from_accepted_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.booking_for(booking_id)["status"], "In Progress")
+
+    def test_66_start_repair_persists_exact_in_progress_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+
+        self.assertEqual(self.booking_for(booking_id)["status"], "In Progress")
+
+    def test_67_start_repair_preserves_created_at_and_refreshes_updated_at(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        original_time = "2000-01-01 00:00:00"
+        self.set_booking_timestamps(booking_id, original_time)
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+
+        booking = self.booking_for(booking_id)
+        self.assertEqual(booking["created_at"], original_time)
+        self.assertNotEqual(booking["updated_at"], original_time)
+
+    def test_68_in_progress_booking_exposes_complete_repair(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.get(f"/staff/bookings/{booking_id}/progress")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Complete Repair", response.data)
+        self.assertNotIn(b"Start Repair", response.data)
+
+    def test_69_staff_can_complete_repair_from_in_progress_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "complete"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Completed")
+
+    def test_70_complete_repair_persists_exact_completed_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "complete"},
+        )
+
+        self.assertEqual(self.booking_for(booking_id)["status"], "Completed")
+
+    def test_71_complete_repair_preserves_created_at_and_refreshes_updated_at(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        original_time = "2000-01-01 00:00:00"
+        self.set_booking_timestamps(booking_id, original_time)
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "complete"},
+        )
+
+        booking = self.booking_for(booking_id)
+        self.assertEqual(booking["created_at"], original_time)
+        self.assertNotEqual(booking["updated_at"], original_time)
+
+    def test_72_submitted_booking_cannot_start_repair(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Submitted")
+
+    def test_73_submitted_booking_cannot_complete_repair(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "complete"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Submitted")
+
+    def test_74_accepted_booking_cannot_jump_directly_to_completed(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "complete"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Accepted")
+
+    def test_75_rejected_booking_cannot_enter_repair_progress(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Rejected")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Rejected")
+
+    def test_76_cancelled_booking_cannot_enter_repair_progress(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Cancelled")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Cancelled")
+
+    def test_77_completed_booking_is_terminal(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Completed")
+        before = tuple(self.booking_for(booking_id))
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        for action in ("start", "complete"):
+            with self.subTest(action=action):
+                response = self.client.post(
+                    f"/staff/bookings/{booking_id}/progress",
+                    data={"action": action},
+                )
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_78_arbitrary_progress_action_cannot_set_lifecycle_state(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "cancel", "status": "Cancelled"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Accepted")
+
+    def test_79_customer_progress_post_is_forbidden_without_mutation(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Accepted")
+
+    def test_80_failed_progress_transition_leaves_booking_unchanged(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        before = tuple(self.booking_for(booking_id))
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+        self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_81_customer_view_displays_in_progress_after_staff_starts_repair(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "start"},
+        )
+        self.client.post("/logout")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertIn(b"In Progress", response.data)
+
+    def test_82_customer_view_displays_completed_after_staff_completes_repair(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/progress",
+            data={"action": "complete"},
+        )
+        self.client.post("/logout")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertIn(b"Completed", response.data)
+
 
 if __name__ == "__main__":
     unittest.main()
