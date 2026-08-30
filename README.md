@@ -5,6 +5,7 @@ Authentication and role-access foundation for:
 - **RSB-4 — FR-01 — User Logs In and Out**
 - **RSB-5 — FR-02 — User Accesses Role-Appropriate Functions**
 - **RSB-6 — FR-03 — Customer Creates a Repair Booking**
+- **RSB-7 — FR-04 — Customer Views Own Booking and Current Status**
 
 ## Setup
 
@@ -34,6 +35,9 @@ Customers are directed to `/customer`, while Repair Staff are directed to
 Customers can create a booking at `/customer/bookings/create` using the frozen
 Device Category options Phone, Tablet, or Laptop. New bookings are associated
 with the authenticated Customer and start in the Submitted state.
+Customers can view only their own bookings at `/customer/bookings` and open
+their own read-only booking details. Ownership filtering is enforced in SQLite
+queries using the authenticated Customer ID.
 
 ## Test
 

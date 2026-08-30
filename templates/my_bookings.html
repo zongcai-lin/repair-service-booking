@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Bookings | Repair Service Booking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="card card-wide">
+      <p class="eyebrow">Repair Service Booking</p>
+      <h1>My Bookings</h1>
+      <p class="muted">Signed in as {{ user['username'] }}</p>
+
+      {% if bookings %}
+        <!-- Every row was already filtered by authenticated owner ID server-side. -->
+        <ul class="booking-list">
+          {% for booking in bookings %}
+            <li>
+              <a href="{{ url_for('booking_detail', booking_id=booking['id']) }}">
+                <span>
+                  <strong>Booking #{{ booking['id'] }}</strong>
+                  <small>{{ booking['device_category'] }} · {{ booking['device_make_model'] }}</small>
+                </span>
+                <span class="status-badge">{{ booking['status'] }}</span>
+              </a>
+              <small>Created {{ booking['created_at'] }}</small>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <!-- RSB-7 AC4: no owned rows is a normal empty state, not an error. -->
+        <div class="empty-state">
+          <h2>No repair bookings yet</h2>
+          <p>Your repair bookings will appear here after you submit one.</p>
+        </div>
+      {% endif %}
+
+      <a class="primary-action" href="{{ url_for('create_booking') }}">Create Booking</a>
+      <a class="secondary-action" href="{{ url_for('customer') }}">Back to Customer Area</a>
+    </main>
+  </body>
+</html>

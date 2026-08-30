@@ -399,6 +399,169 @@ class AuthenticationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(dict(booking), submitted_data)
 
+    def user_id_for(self, username):
+        with self.app.app_context():
+            return get_db().execute(
+                "SELECT id FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()["id"]
+
+    def insert_test_booking(
+        self,
+        customer_id,
+        device_make_model="Owned Test Device",
+        status="Submitted",
+    ):
+        with self.app.app_context():
+            database = get_db()
+            cursor = database.execute(
+                """
+                INSERT INTO bookings (
+                    customer_id,
+                    device_category,
+                    device_make_model,
+                    issue_description,
+                    status
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    customer_id,
+                    "Phone",
+                    device_make_model,
+                    "Test issue description",
+                    status,
+                ),
+            )
+            database.commit()
+            return cursor.lastrowid
+
+    def create_test_only_customer(self):
+        # RSB-7 ownership evidence needs two owners, but customer2 exists only
+        # inside this isolated test database and is never runtime provisioning.
+        with self.app.app_context():
+            database = get_db()
+            cursor = database.execute(
+                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                (
+                    "customer2",
+                    generate_password_hash("test-only-password"),
+                    "Customer",
+                ),
+            )
+            database.commit()
+            return cursor.lastrowid
+
+    def test_31_customer_can_access_my_bookings(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        response = self.client.get("/customer/bookings")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"My Bookings", response.data)
+
+    def test_32_unauthenticated_booking_views_redirect_to_login(self):
+        for path in ("/customer/bookings", "/customer/bookings/1"):
+            with self.subTest(path=path):
+                response = self.client.get(path, follow_redirects=False)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.headers["Location"], "/login")
+
+    def test_33_staff_booking_views_return_forbidden(self):
+        self.login("staff1", self.STAFF_PASSWORD)
+        for path in ("/customer/bookings", "/customer/bookings/1"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 403)
+                self.assertIn(b"Access denied", response.data)
+
+    def test_34_customer_sees_booking_created_through_real_route(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.post(
+            "/customer/bookings/create",
+            data={
+                "device_category": "Laptop",
+                "device_make_model": "Visible ExampleBook",
+                "issue_description": "Visible test issue",
+            },
+        )
+        response = self.client.get("/customer/bookings")
+        self.assertIn(b"Visible ExampleBook", response.data)
+        self.assertIn(b"Submitted", response.data)
+
+    def test_35_views_show_current_persisted_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        list_response = self.client.get("/customer/bookings")
+        detail_response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertIn(b"In Progress", list_response.data)
+        self.assertIn(b"In Progress", detail_response.data)
+
+    def test_36_booking_list_contains_only_authenticated_customer_rows(self):
+        customer1_id = self.user_id_for("customer1")
+        customer2_id = self.create_test_only_customer()
+        self.insert_test_booking(customer1_id, "Customer One Device")
+        self.insert_test_booking(customer2_id, "Customer Two Private Device")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get("/customer/bookings")
+        self.assertIn(b"Customer One Device", response.data)
+        self.assertNotIn(b"Customer Two Private Device", response.data)
+
+    def test_37_customer_can_open_own_booking_details(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, "Detail Test Device")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Detail Test Device", response.data)
+        self.assertIn(b"Test issue description", response.data)
+        self.assertIn(b"Submitted", response.data)
+
+    def test_38_customer_cannot_access_another_customer_booking(self):
+        customer2_id = self.create_test_only_customer()
+        booking_id = self.insert_test_booking(
+            customer2_id,
+            "Private Customer Two Device",
+        )
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(b"Booking not found", response.data)
+        self.assertNotIn(b"Private Customer Two Device", response.data)
+
+    def test_39_customer_without_bookings_sees_empty_state(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        response = self.client.get("/customer/bookings")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No repair bookings yet", response.data)
+
+    def test_40_viewing_routes_do_not_change_booking_data(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, "Read Only Device")
+        with self.app.app_context():
+            before = tuple(
+                get_db().execute(
+                    "SELECT * FROM bookings WHERE id = ?",
+                    (booking_id,),
+                ).fetchone()
+            )
+
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.get("/customer/bookings")
+        self.client.get(f"/customer/bookings/{booking_id}")
+
+        with self.app.app_context():
+            after = tuple(
+                get_db().execute(
+                    "SELECT * FROM bookings WHERE id = ?",
+                    (booking_id,),
+                ).fetchone()
+            )
+        self.assertEqual(after, before)
+
 
 if __name__ == "__main__":
     unittest.main()
