@@ -36,6 +36,11 @@
         <a class="secondary-action" href="{{ url_for('my_bookings') }}">My Bookings</a>
       {% endif %}
 
+      {% if show_review_queue %}
+        <!-- RSB-8 access is enforced server-side; this is Staff navigation only. -->
+        <a class="primary-action" href="{{ url_for('staff_booking_queue') }}">Review Submitted Bookings</a>
+      {% endif %}
+
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit">Log Out</button>
       </form>

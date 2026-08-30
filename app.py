@@ -8,6 +8,7 @@ from db import get_db, init_app as init_db_app
 
 
 DEVICE_CATEGORIES = ("Phone", "Tablet", "Laptop")
+REVIEW_ACTIONS = {"accept": "Accepted", "reject": "Rejected"}
 
 
 def create_app(test_config=None):
@@ -46,6 +47,7 @@ def create_app(test_config=None):
         area_title,
         show_create_booking=False,
         show_my_bookings=False,
+        show_review_queue=False,
         success_message=None,
     ):
         user = load_current_user()
@@ -58,6 +60,7 @@ def create_app(test_config=None):
             area_title=area_title,
             show_create_booking=show_create_booking,
             show_my_bookings=show_my_bookings,
+            show_review_queue=show_review_queue,
             success_message=success_message,
             user=user,
         )
@@ -114,7 +117,11 @@ def create_app(test_config=None):
 
     @app.get("/staff")
     def staff():
-        return show_role_area("Repair Staff", "Repair Staff Area")
+        return show_role_area(
+            "Repair Staff",
+            "Repair Staff Area",
+            show_review_queue=True,
+        )
 
     @app.route("/customer/bookings/create", methods=("GET", "POST"))
     def create_booking():
@@ -237,6 +244,139 @@ def create_app(test_config=None):
         # Scope boundary: this page only displays the current persisted record;
         # cancellation and repair-status updates are intentionally absent.
         return render_template("booking_detail.html", booking=booking, user=user)
+
+    @app.get("/staff/bookings")
+    def staff_booking_queue():
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 / RSB-8: Staff-only routing is enforced before querying data;
+        # navigation links alone cannot stop a Customer from requesting this URL.
+        if user["role"] != "Repair Staff":
+            return render_template("access_denied.html"), 403
+
+        # RSB-8 review scope starts with Submitted work only. Filtering in the
+        # query prevents Accepted/Rejected rows being offered for another review.
+        bookings = get_db().execute(
+            """
+            SELECT id, device_category, device_make_model, status, created_at
+            FROM bookings
+            WHERE status = 'Submitted'
+            ORDER BY created_at DESC, id DESC
+            """
+        ).fetchall()
+        success_message = None
+        if request.args.get("reviewed") in REVIEW_ACTIONS.values():
+            success_message = "Booking review saved."
+        return render_template(
+            "staff_booking_queue.html",
+            bookings=bookings,
+            success_message=success_message,
+            user=user,
+        )
+
+    @app.get("/staff/bookings/<int:booking_id>")
+    def staff_review_booking(booking_id):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+        if user["role"] != "Repair Staff":
+            return render_template("access_denied.html"), 403
+
+        booking = get_db().execute(
+            """
+            SELECT id, device_category, device_make_model, issue_description,
+                   status, created_at, updated_at
+            FROM bookings
+            WHERE id = ?
+            """,
+            (booking_id,),
+        ).fetchone()
+        if booking is None:
+            return render_template("booking_not_found.html"), 404
+
+        review_error = None
+        if booking["status"] != "Submitted":
+            review_error = "This booking can no longer be reviewed."
+        return render_template(
+            "staff_review_booking.html",
+            booking=booking,
+            review_error=review_error,
+            user=user,
+        )
+
+    @app.post("/staff/bookings/<int:booking_id>/review")
+    def review_booking(booking_id):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 / RSB-8: this POST repeats the Staff check so a crafted form
+        # cannot use a Customer session to change a booking's persisted status.
+        if user["role"] != "Repair Staff":
+            return render_template("access_denied.html"), 403
+
+        action = request.form.get("action", "")
+        target_status = REVIEW_ACTIONS.get(action)
+        database = get_db()
+        booking = database.execute(
+            """
+            SELECT id, device_category, device_make_model, issue_description,
+                   status, created_at, updated_at
+            FROM bookings
+            WHERE id = ?
+            """,
+            (booking_id,),
+        ).fetchone()
+        if booking is None:
+            return render_template("booking_not_found.html"), 404
+        if target_status is None:
+            # Only named Accept/Reject actions are trusted; never map a client
+            # supplied status value into the workflow or later RSB-9 states.
+            return (
+                render_template(
+                    "staff_review_booking.html",
+                    booking=booking,
+                    review_error="Choose Accept or Reject to review this booking.",
+                    user=user,
+                ),
+                400,
+            )
+
+        # The conditional UPDATE makes the current database value authoritative
+        # immediately before mutation: RSB-8 permits Submitted -> Accepted or
+        # Submitted -> Rejected only, and leaves every other state unchanged.
+        cursor = database.execute(
+            """
+            UPDATE bookings
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'Submitted'
+            """,
+            (target_status, booking_id),
+        )
+        database.commit()
+        if cursor.rowcount != 1:
+            current_booking = database.execute(
+                """
+                SELECT id, device_category, device_make_model, issue_description,
+                       status, created_at, updated_at
+                FROM bookings
+                WHERE id = ?
+                """,
+                (booking_id,),
+            ).fetchone()
+            return (
+                render_template(
+                    "staff_review_booking.html",
+                    booking=current_booking,
+                    review_error="This booking can no longer be reviewed.",
+                    user=user,
+                ),
+                409,
+            )
+
+        return redirect(url_for("staff_booking_queue", reviewed=target_status))
 
     @app.post("/logout")
     def logout():

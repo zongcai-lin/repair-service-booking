@@ -6,6 +6,7 @@ Authentication and role-access foundation for:
 - **RSB-5 — FR-02 — User Accesses Role-Appropriate Functions**
 - **RSB-6 — FR-03 — Customer Creates a Repair Booking**
 - **RSB-7 — FR-04 — Customer Views Own Booking and Current Status**
+- **RSB-8 — FR-05 — Staff Reviews a Submitted Booking**
 
 ## Setup
 
@@ -38,6 +39,10 @@ with the authenticated Customer and start in the Submitted state.
 Customers can view only their own bookings at `/customer/bookings` and open
 their own read-only booking details. Ownership filtering is enforced in SQLite
 queries using the authenticated Customer ID.
+Repair Staff can view only the Submitted booking queue at `/staff/bookings` and
+review a submitted booking with the explicit Accept or Reject actions. The
+server permits only Submitted-to-Accepted and Submitted-to-Rejected transitions;
+repair-progress updates remain outside this increment.
 
 ## Test
 
