@@ -5,3 +5,5 @@ __pycache__/
 repair_service.db
 .env
 
+
+.DS_Store

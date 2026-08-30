@@ -25,6 +25,10 @@ body {
   box-shadow: 0 0.5rem 1.5rem rgba(9, 30, 66, 0.12);
 }
 
+.card-wide {
+  width: min(100%, 44rem);
+}
+
 .eyebrow {
   margin: 0 0 0.5rem;
   color: #0c66e4;
@@ -133,6 +137,83 @@ button:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
+}
+
+.booking-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.booking-list li {
+  padding: 1rem;
+  border: 1px solid #dfe1e6;
+  border-radius: 0.5rem;
+}
+
+.booking-list a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #172b4d;
+  text-decoration: none;
+}
+
+.booking-list span:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.booking-list li > small,
+.booking-list small {
+  color: #626f86;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  color: #0c3b73;
+  background: #e9f2ff;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.empty-state {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border: 1px dashed #8590a2;
+  border-radius: 0.5rem;
+  text-align: center;
+}
+
+.empty-state h2 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
+.empty-state p {
+  margin-bottom: 0;
+  color: #626f86;
+}
+
+.booking-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1.5rem;
+}
+
+.booking-details .preserve-lines {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 36rem) {
+  .booking-details {
+    grid-template-columns: 1fr;
+  }
 }
 
 dl {

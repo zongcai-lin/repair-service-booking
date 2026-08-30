@@ -45,6 +45,7 @@ def create_app(test_config=None):
         required_role,
         area_title,
         show_create_booking=False,
+        show_my_bookings=False,
         success_message=None,
     ):
         user = load_current_user()
@@ -56,6 +57,7 @@ def create_app(test_config=None):
             "authenticated.html",
             area_title=area_title,
             show_create_booking=show_create_booking,
+            show_my_bookings=show_my_bookings,
             success_message=success_message,
             user=user,
         )
@@ -106,6 +108,7 @@ def create_app(test_config=None):
             "Customer",
             "Customer Area",
             show_create_booking=True,
+            show_my_bookings=True,
             success_message=success_message,
         )
 
@@ -169,6 +172,71 @@ def create_app(test_config=None):
             form_values=form_values,
             user=user,
         )
+
+    @app.get("/customer/bookings")
+    def my_bookings():
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 role rule: Customer viewing routes enforce access on the server;
+        # hiding their links from Staff would not prevent a direct URL request.
+        if user["role"] != "Customer":
+            return render_template("access_denied.html"), 403
+
+        # RSB-7 / BR-01: Apply the authenticated Customer ID in the database
+        # query so another Customer's rows never reach the template or browser.
+        bookings = get_db().execute(
+            """
+            SELECT id, device_category, device_make_model, status, created_at
+            FROM bookings
+            WHERE customer_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (user["id"],),
+        ).fetchall()
+
+        # RSB-7 is read-only: persisted status is displayed as queried, while
+        # cancellation and status-transition controls remain for later stories.
+        return render_template("my_bookings.html", bookings=bookings, user=user)
+
+    @app.get("/customer/bookings/<int:booking_id>")
+    def booking_detail(booking_id):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 role rule: Staff cannot use Customer booking-detail routes even
+        # when they know a valid booking identifier.
+        if user["role"] != "Customer":
+            return render_template("access_denied.html"), 403
+
+        # RSB-7 / BR-01: Combining booking ID and authenticated owner ID in one
+        # query prevents another Customer's data from ever being returned.
+        booking = get_db().execute(
+            """
+            SELECT
+                id,
+                device_category,
+                device_make_model,
+                issue_description,
+                status,
+                created_at,
+                updated_at
+            FROM bookings
+            WHERE id = ? AND customer_id = ?
+            """,
+            (booking_id, user["id"]),
+        ).fetchone()
+
+        if booking is None:
+            # Use the same 404 for missing and differently owned records so the
+            # response does not reveal whether another Customer's booking exists.
+            return render_template("booking_not_found.html"), 404
+
+        # Scope boundary: this page only displays the current persisted record;
+        # cancellation and repair-status updates are intentionally absent.
+        return render_template("booking_detail.html", booking=booking, user=user)
 
     @app.post("/logout")
     def logout():
