@@ -7,6 +7,7 @@ Authentication and role-access foundation for:
 - **RSB-6 — FR-03 — Customer Creates a Repair Booking**
 - **RSB-7 — FR-04 — Customer Views Own Booking and Current Status**
 - **RSB-8 — FR-05 — Staff Reviews a Submitted Booking**
+- **RSB-9 — FR-06 — Staff Updates Repair Progress**
 
 ## Setup
 
@@ -42,7 +43,9 @@ queries using the authenticated Customer ID.
 Repair Staff can view only the Submitted booking queue at `/staff/bookings` and
 review a submitted booking with the explicit Accept or Reject actions. The
 server permits only Submitted-to-Accepted and Submitted-to-Rejected transitions;
-repair-progress updates remain outside this increment.
+Repair Staff can then update repair progress only from Accepted to In Progress
+and from In Progress to Completed. Completed bookings are terminal; cancellation
+remains outside this increment.
 
 ## Test
 

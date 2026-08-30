@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Update Repair Progress #{{ booking['id'] }} | Repair Service Booking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="card card-wide">
+      <p class="eyebrow">Repair Service Booking</p>
+      <h1>Update Repair Progress #{{ booking['id'] }}</h1>
+      <p class="muted">Signed in as {{ user['username'] }}</p>
+
+      {% if progress_error %}
+        <p class="error" role="alert">{{ progress_error }}</p>
+      {% endif %}
+
+      <dl class="booking-details">
+        <div>
+          <dt>Current Status</dt>
+          <dd><span class="status-badge">{{ booking['status'] }}</span></dd>
+        </div>
+        <div>
+          <dt>Device Category</dt>
+          <dd>{{ booking['device_category'] }}</dd>
+        </div>
+        <div>
+          <dt>Device Make / Model</dt>
+          <dd>{{ booking['device_make_model'] }}</dd>
+        </div>
+        <div>
+          <dt>Issue Description</dt>
+          <dd class="preserve-lines">{{ booking['issue_description'] }}</dd>
+        </div>
+        <div>
+          <dt>Created At</dt>
+          <dd>{{ booking['created_at'] }}</dd>
+        </div>
+        <div>
+          <dt>Updated At</dt>
+          <dd>{{ booking['updated_at'] }}</dd>
+        </div>
+      </dl>
+
+      {% if booking['status'] == 'Accepted' %}
+        <!-- RSB-9 permits starting only after the persisted RSB-8 Accepted
+             outcome; the server repeats that state check when this is posted. -->
+        <form method="post" action="{{ url_for('update_repair_progress', booking_id=booking['id']) }}">
+          <input type="hidden" name="action" value="start">
+          <button type="submit">Start Repair</button>
+        </form>
+      {% elif booking['status'] == 'In Progress' %}
+        <!-- Complete is the only next RSB-9 action. There is intentionally no
+             cancellation or arbitrary state control in this increment. -->
+        <form method="post" action="{{ url_for('update_repair_progress', booking_id=booking['id']) }}">
+          <input type="hidden" name="action" value="complete">
+          <button type="submit">Complete Repair</button>
+        </form>
+      {% endif %}
+
+      <!-- Completed is terminal: it is displayed above but deliberately has no
+           action. Customer status views read this same persisted booking row. -->
+      <a class="secondary-action" href="{{ url_for('staff_progress_queue') }}">Back to Repair Progress</a>
+    </main>
+  </body>
+</html>

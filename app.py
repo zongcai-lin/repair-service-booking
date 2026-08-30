@@ -9,6 +9,10 @@ from db import get_db, init_app as init_db_app
 
 DEVICE_CATEGORIES = ("Phone", "Tablet", "Laptop")
 REVIEW_ACTIONS = {"accept": "Accepted", "reject": "Rejected"}
+PROGRESS_ACTIONS = {
+    "start": ("Accepted", "In Progress"),
+    "complete": ("In Progress", "Completed"),
+}
 
 
 def create_app(test_config=None):
@@ -48,6 +52,7 @@ def create_app(test_config=None):
         show_create_booking=False,
         show_my_bookings=False,
         show_review_queue=False,
+        show_progress_queue=False,
         success_message=None,
     ):
         user = load_current_user()
@@ -61,6 +66,7 @@ def create_app(test_config=None):
             show_create_booking=show_create_booking,
             show_my_bookings=show_my_bookings,
             show_review_queue=show_review_queue,
+            show_progress_queue=show_progress_queue,
             success_message=success_message,
             user=user,
         )
@@ -121,6 +127,7 @@ def create_app(test_config=None):
             "Repair Staff",
             "Repair Staff Area",
             show_review_queue=True,
+            show_progress_queue=True,
         )
 
     @app.route("/customer/bookings/create", methods=("GET", "POST"))
@@ -377,6 +384,135 @@ def create_app(test_config=None):
             )
 
         return redirect(url_for("staff_booking_queue", reviewed=target_status))
+
+    @app.get("/staff/bookings/progress")
+    def staff_progress_queue():
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 / RSB-9: progress is a Staff responsibility, so enforce this
+        # on the server before any booking data can be returned to a Customer.
+        if user["role"] != "Repair Staff":
+            return render_template("access_denied.html"), 403
+
+        # Submitted remains in the RSB-8 review queue, while Rejected and
+        # Cancelled have no repair work. This queue is limited to the RSB-9
+        # lifecycle states that Staff can inspect or progress.
+        bookings = get_db().execute(
+            """
+            SELECT id, device_category, device_make_model, status, created_at
+            FROM bookings
+            WHERE status IN ('Accepted', 'In Progress', 'Completed')
+            ORDER BY created_at DESC, id DESC
+            """
+        ).fetchall()
+        success_message = None
+        if request.args.get("progressed") in ("In Progress", "Completed"):
+            success_message = "Repair progress saved."
+        return render_template(
+            "staff_progress_queue.html",
+            bookings=bookings,
+            success_message=success_message,
+            user=user,
+        )
+
+    @app.get("/staff/bookings/<int:booking_id>/progress")
+    def staff_progress_booking(booking_id):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+        if user["role"] != "Repair Staff":
+            return render_template("access_denied.html"), 403
+
+        booking = get_db().execute(
+            """
+            SELECT id, device_category, device_make_model, issue_description,
+                   status, created_at, updated_at
+            FROM bookings
+            WHERE id = ?
+            """,
+            (booking_id,),
+        ).fetchone()
+        if booking is None:
+            return render_template("booking_not_found.html"), 404
+
+        return render_template("staff_progress_booking.html", booking=booking, user=user)
+
+    @app.post("/staff/bookings/<int:booking_id>/progress")
+    def update_repair_progress(booking_id):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 / BR-02: hiding these controls is not authorization; a direct
+        # Customer POST must still be rejected before it can mutate a booking.
+        if user["role"] != "Repair Staff":
+            return render_template("access_denied.html"), 403
+
+        action = request.form.get("action", "")
+        transition = PROGRESS_ACTIONS.get(action)
+        database = get_db()
+        booking = database.execute(
+            """
+            SELECT id, device_category, device_make_model, issue_description,
+                   status, created_at, updated_at
+            FROM bookings
+            WHERE id = ?
+            """,
+            (booking_id,),
+        ).fetchone()
+        if booking is None:
+            return render_template("booking_not_found.html"), 404
+        if transition is None:
+            # RSB-9 never trusts status values from the browser. Named actions
+            # prevent a crafted request from selecting any other lifecycle state.
+            return (
+                render_template(
+                    "staff_progress_booking.html",
+                    booking=booking,
+                    progress_error="Choose Start Repair or Complete Repair.",
+                    user=user,
+                ),
+                400,
+            )
+
+        expected_status, target_status = transition
+        # RSB-9 / BR-03: the condition re-checks the persisted state at the
+        # mutation point. Submitted therefore cannot bypass RSB-8 review, and
+        # Completed never matches either active-state transition (terminal).
+        cursor = database.execute(
+            """
+            UPDATE bookings
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = ?
+            """,
+            (target_status, booking_id, expected_status),
+        )
+        database.commit()
+        if cursor.rowcount != 1:
+            current_booking = database.execute(
+                """
+                SELECT id, device_category, device_make_model, issue_description,
+                       status, created_at, updated_at
+                FROM bookings
+                WHERE id = ?
+                """,
+                (booking_id,),
+            ).fetchone()
+            return (
+                render_template(
+                    "staff_progress_booking.html",
+                    booking=current_booking,
+                    progress_error="This progress action is no longer available.",
+                    user=user,
+                ),
+                409,
+            )
+
+        # created_at is the original request time; each allowed business change
+        # refreshes only updated_at so Customer views show the shared record.
+        return redirect(url_for("staff_progress_queue", progressed=target_status))
 
     @app.post("/logout")
     def logout():
