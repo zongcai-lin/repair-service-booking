@@ -139,6 +139,22 @@ button:hover {
   gap: 0.75rem;
 }
 
+.actions form {
+  margin: 0;
+}
+
+.actions button {
+  margin-top: 1.5rem;
+}
+
+.reject-button {
+  background: #ae2a19;
+}
+
+.reject-button:hover {
+  background: #8f1d11;
+}
+
 .booking-list {
   display: grid;
   gap: 0.75rem;

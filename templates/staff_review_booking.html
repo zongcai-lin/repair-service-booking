@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Review Booking #{{ booking['id'] }} | Repair Service Booking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="card card-wide">
+      <p class="eyebrow">Repair Service Booking</p>
+      <h1>Review Booking #{{ booking['id'] }}</h1>
+      <p class="muted">Signed in as {{ user['username'] }}</p>
+
+      {% if review_error %}
+        <p class="error" role="alert">{{ review_error }}</p>
+      {% endif %}
+
+      <dl class="booking-details">
+        <div>
+          <dt>Current Status</dt>
+          <dd><span class="status-badge">{{ booking['status'] }}</span></dd>
+        </div>
+        <div>
+          <dt>Device Category</dt>
+          <dd>{{ booking['device_category'] }}</dd>
+        </div>
+        <div>
+          <dt>Device Make / Model</dt>
+          <dd>{{ booking['device_make_model'] }}</dd>
+        </div>
+        <div>
+          <dt>Issue Description</dt>
+          <dd class="preserve-lines">{{ booking['issue_description'] }}</dd>
+        </div>
+        <div>
+          <dt>Created At</dt>
+          <dd>{{ booking['created_at'] }}</dd>
+        </div>
+        <div>
+          <dt>Updated At</dt>
+          <dd>{{ booking['updated_at'] }}</dd>
+        </div>
+      </dl>
+
+      {% if booking['status'] == 'Submitted' %}
+        <!-- RSB-8 stops at review: explicit actions prevent arbitrary statuses
+             and intentionally omit RSB-9 repair-progress controls. -->
+        <div class="actions">
+          <form method="post" action="{{ url_for('review_booking', booking_id=booking['id']) }}">
+            <input type="hidden" name="action" value="accept">
+            <button type="submit">Accept</button>
+          </form>
+          <form method="post" action="{{ url_for('review_booking', booking_id=booking['id']) }}">
+            <input type="hidden" name="action" value="reject">
+            <button type="submit" class="reject-button">Reject</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <a class="secondary-action" href="{{ url_for('staff_booking_queue') }}">Back to Submitted Bookings</a>
+    </main>
+  </body>
+</html>

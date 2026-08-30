@@ -436,6 +436,28 @@ class AuthenticationTests(unittest.TestCase):
             database.commit()
             return cursor.lastrowid
 
+    def booking_for(self, booking_id):
+        with self.app.app_context():
+            return get_db().execute(
+                "SELECT * FROM bookings WHERE id = ?",
+                (booking_id,),
+            ).fetchone()
+
+    def set_booking_timestamps(self, booking_id, timestamp):
+        # A fixed historical value makes the RSB-8 updated_at assertion
+        # deterministic even when SQLite operations occur in the same second.
+        with self.app.app_context():
+            database = get_db()
+            database.execute(
+                """
+                UPDATE bookings
+                SET created_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (timestamp, timestamp, booking_id),
+            )
+            database.commit()
+
     def create_test_only_customer(self):
         # RSB-7 ownership evidence needs two owners, but customer2 exists only
         # inside this isolated test database and is never runtime provisioning.
@@ -561,6 +583,234 @@ class AuthenticationTests(unittest.TestCase):
                 ).fetchone()
             )
         self.assertEqual(after, before)
+
+    def test_41_staff_can_access_submitted_bookings_queue(self):
+        self.login("staff1", self.STAFF_PASSWORD)
+        response = self.client.get("/staff/bookings")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Submitted Bookings", response.data)
+
+    def test_42_unauthenticated_staff_queue_redirects_to_login(self):
+        response = self.client.get("/staff/bookings", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+    def test_43_customer_cannot_access_staff_queue(self):
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        response = self.client.get("/staff/bookings")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b"Access denied", response.data)
+
+    def test_44_staff_can_open_submitted_booking_for_review(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, "Reviewable Device")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.get(f"/staff/bookings/{booking_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Reviewable Device", response.data)
+        self.assertIn(b"Accept", response.data)
+        self.assertIn(b"Reject", response.data)
+
+    def test_45_customer_cannot_open_staff_review_page(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/staff/bookings/{booking_id}")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b"Access denied", response.data)
+
+    def test_46_staff_queue_displays_submitted_bookings(self):
+        customer_id = self.user_id_for("customer1")
+        self.insert_test_booking(customer_id, "Submitted Queue Device")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.get("/staff/bookings")
+        self.assertIn(b"Submitted Queue Device", response.data)
+        self.assertIn(b"Submitted", response.data)
+
+    def test_47_staff_queue_excludes_accepted_and_rejected_bookings(self):
+        customer_id = self.user_id_for("customer1")
+        self.insert_test_booking(customer_id, "Accepted Queue Device", "Accepted")
+        self.insert_test_booking(customer_id, "Rejected Queue Device", "Rejected")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.get("/staff/bookings")
+        self.assertNotIn(b"Accepted Queue Device", response.data)
+        self.assertNotIn(b"Rejected Queue Device", response.data)
+
+    def test_48_staff_can_accept_submitted_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "accept"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Accepted")
+
+    def test_49_accept_persists_exact_accepted_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "accept"},
+        )
+
+        self.assertEqual(self.booking_for(booking_id)["status"], "Accepted")
+
+    def test_50_accept_preserves_created_at_and_refreshes_updated_at(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        original_time = "2000-01-01 00:00:00"
+        self.set_booking_timestamps(booking_id, original_time)
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "accept"},
+        )
+
+        booking = self.booking_for(booking_id)
+        self.assertEqual(booking["created_at"], original_time)
+        self.assertNotEqual(booking["updated_at"], original_time)
+
+    def test_51_staff_can_reject_submitted_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "reject"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Rejected")
+
+    def test_52_reject_persists_exact_rejected_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "reject"},
+        )
+
+        self.assertEqual(self.booking_for(booking_id)["status"], "Rejected")
+
+    def test_53_reject_preserves_created_at_and_refreshes_updated_at(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        original_time = "2000-01-01 00:00:00"
+        self.set_booking_timestamps(booking_id, original_time)
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "reject"},
+        )
+
+        booking = self.booking_for(booking_id)
+        self.assertEqual(booking["created_at"], original_time)
+        self.assertNotEqual(booking["updated_at"], original_time)
+
+    def test_54_customer_cannot_post_accept_or_reject(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id)
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        for action in ("accept", "reject"):
+            with self.subTest(action=action):
+                response = self.client.post(
+                    f"/staff/bookings/{booking_id}/review",
+                    data={"action": action},
+                )
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(self.booking_for(booking_id)["status"], "Submitted")
+
+    def test_55_arbitrary_actions_cannot_set_other_workflow_states(self):
+        customer_id = self.user_id_for("customer1")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        for attempted_action in ("In Progress", "Completed", "Cancelled", "other"):
+            with self.subTest(attempted_action=attempted_action):
+                booking_id = self.insert_test_booking(customer_id)
+                response = self.client.post(
+                    f"/staff/bookings/{booking_id}/review",
+                    data={"action": attempted_action, "status": attempted_action},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(self.booking_for(booking_id)["status"], "Submitted")
+
+    def test_56_accepted_booking_cannot_be_reviewed_again(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        before = tuple(self.booking_for(booking_id))
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "reject"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_57_rejected_booking_cannot_be_reviewed_again(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Rejected")
+        before = tuple(self.booking_for(booking_id))
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "accept"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_58_failed_review_leaves_booking_unchanged(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        before = tuple(self.booking_for(booking_id))
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "Completed"},
+        )
+        self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_59_customer_view_displays_accepted_after_staff_review(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, "Accepted Customer View")
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "accept"},
+        )
+        self.client.post("/logout")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertIn(b"Accepted", response.data)
+
+    def test_60_customer_view_displays_rejected_after_staff_review(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, "Rejected Customer View")
+        self.login("staff1", self.STAFF_PASSWORD)
+        self.client.post(
+            f"/staff/bookings/{booking_id}/review",
+            data={"action": "reject"},
+        )
+        self.client.post("/logout")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertIn(b"Rejected", response.data)
 
 
 if __name__ == "__main__":
