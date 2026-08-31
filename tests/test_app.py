@@ -1066,6 +1066,250 @@ class AuthenticationTests(unittest.TestCase):
         response = self.client.get(f"/customer/bookings/{booking_id}")
         self.assertIn(b"Completed", response.data)
 
+    def test_83_customer_sees_cancel_booking_for_owned_submitted_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Cancel Booking", response.data)
+
+    def test_84_customer_can_cancel_owned_submitted_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Cancelled")
+
+    def test_85_submitted_cancellation_persists_exact_cancelled_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+
+        self.assertEqual(self.booking_for(booking_id)["status"], "Cancelled")
+
+    def test_86_submitted_cancellation_preserves_created_at_and_refreshes_updated_at(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        original_time = "2000-01-01 00:00:00"
+        self.set_booking_timestamps(booking_id, original_time)
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+
+        booking = self.booking_for(booking_id)
+        self.assertEqual(booking["created_at"], original_time)
+        self.assertNotEqual(booking["updated_at"], original_time)
+
+    def test_87_customer_can_cancel_owned_accepted_booking(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Cancelled")
+
+    def test_88_accepted_cancellation_persists_exact_cancelled_status(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Accepted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+
+        self.assertEqual(self.booking_for(booking_id)["status"], "Cancelled")
+
+    def test_89_in_progress_booking_cannot_be_cancelled(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "In Progress")
+
+    def test_90_completed_booking_cannot_be_cancelled(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Completed")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Completed")
+
+    def test_91_rejected_booking_cannot_be_cancelled(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Rejected")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Rejected")
+
+    def test_92_cancelled_booking_cannot_be_cancelled_again(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Cancelled")
+        before = tuple(self.booking_for(booking_id))
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_93_customer_cannot_cancel_another_customers_booking(self):
+        customer2_id = self.create_test_only_customer()
+        booking_id = self.insert_test_booking(customer2_id, status="Submitted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Submitted")
+
+    def test_94_staff_cannot_access_customer_cancellation_route(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}/cancel")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b"Access denied", response.data)
+
+    def test_95_staff_cancellation_post_is_forbidden_without_mutation(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("staff1", self.STAFF_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Submitted")
+
+    def test_96_unauthenticated_cancellation_access_redirects_to_login(self):
+        response = self.client.get("/customer/bookings/1/cancel", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login")
+
+    def test_97_crafted_customer_id_cannot_bypass_booking_ownership(self):
+        customer1_id = self.user_id_for("customer1")
+        customer2_id = self.create_test_only_customer()
+        booking_id = self.insert_test_booking(customer2_id, status="Accepted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel", "customer_id": customer1_id},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.booking_for(booking_id)["status"], "Accepted")
+
+    def test_98_crafted_status_cannot_bypass_cancellation_eligibility(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel", "status": "Cancelled"},
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.booking_for(booking_id)["status"], "In Progress")
+
+    def test_99_failed_cancellation_leaves_booking_unchanged(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Rejected")
+        before = tuple(self.booking_for(booking_id))
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+        self.assertEqual(tuple(self.booking_for(booking_id)), before)
+
+    def test_100_successful_cancellation_preserves_request_fields_and_ownership(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, "Preserved Cancellation Device")
+        before = self.booking_for(booking_id)
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+
+        after = self.booking_for(booking_id)
+        for field in (
+            "customer_id",
+            "device_category",
+            "device_make_model",
+            "issue_description",
+        ):
+            self.assertEqual(after[field], before[field])
+        self.assertEqual(after["status"], "Cancelled")
+
+    def test_101_customer_view_displays_cancelled_after_successful_cancellation(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Submitted")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+        self.client.post(
+            f"/customer/bookings/{booking_id}/cancel",
+            data={"action": "cancel"},
+        )
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertIn(b"Cancelled", response.data)
+
+    def test_102_cancelled_booking_no_longer_exposes_cancellation_action(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="Cancelled")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertNotIn(b"Cancel Booking", response.data)
+
+    def test_103_in_progress_booking_does_not_expose_cancellation_action(self):
+        customer_id = self.user_id_for("customer1")
+        booking_id = self.insert_test_booking(customer_id, status="In Progress")
+        self.login("customer1", self.CUSTOMER_PASSWORD)
+
+        response = self.client.get(f"/customer/bookings/{booking_id}")
+        self.assertNotIn(b"Cancel Booking", response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

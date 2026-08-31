@@ -13,6 +13,7 @@ PROGRESS_ACTIONS = {
     "start": ("Accepted", "In Progress"),
     "complete": ("In Progress", "Completed"),
 }
+CANCELLABLE_STATUSES = ("Submitted", "Accepted")
 
 
 def create_app(test_config=None):
@@ -248,9 +249,106 @@ def create_app(test_config=None):
             # response does not reveal whether another Customer's booking exists.
             return render_template("booking_not_found.html"), 404
 
-        # Scope boundary: this page only displays the current persisted record;
-        # cancellation and repair-status updates are intentionally absent.
-        return render_template("booking_detail.html", booking=booking, user=user)
+        # RSB-10 / BR-04: the detail page may offer cancellation only before
+        # repair starts. This UI flag is not authorization; the POST repeats
+        # ownership and current-state checks at the database mutation point.
+        cancellation_error = None
+        success_message = None
+        if request.args.get("cancelled") == "1":
+            success_message = "Booking cancelled successfully."
+        return render_template(
+            "booking_detail.html",
+            booking=booking,
+            can_cancel=booking["status"] in CANCELLABLE_STATUSES,
+            cancellation_error=cancellation_error,
+            success_message=success_message,
+            user=user,
+        )
+
+    @app.route("/customer/bookings/<int:booking_id>/cancel", methods=("GET", "POST"))
+    def cancel_booking(booking_id):
+        user = load_current_user()
+        if user is None:
+            return redirect(url_for("login"))
+
+        # RSB-5 / RSB-10: cancellation is a Customer request-side function.
+        # Handle both GET and POST so a Staff-crafted direct URL is rejected
+        # with the established 403 convention rather than relying on hidden UI.
+        if user["role"] != "Customer":
+            return render_template("access_denied.html"), 403
+        if request.method == "GET":
+            return redirect(url_for("booking_detail", booking_id=booking_id))
+
+        database = get_db()
+        booking = database.execute(
+            """
+            SELECT id, device_category, device_make_model, issue_description,
+                   status, created_at, updated_at
+            FROM bookings
+            WHERE id = ? AND customer_id = ?
+            """,
+            (booking_id, user["id"]),
+        ).fetchone()
+        if booking is None:
+            # Match RSB-7's missing/foreign-owner response: never reveal that
+            # another Customer's booking exists through a cancellation attempt.
+            return render_template("booking_not_found.html"), 404
+        if request.form.get("action") != "cancel":
+            # RSB-10 does not accept a browser-supplied status. The server owns
+            # the single cancellation outcome and rejects arbitrary form input.
+            return (
+                render_template(
+                    "booking_detail.html",
+                    booking=booking,
+                    can_cancel=booking["status"] in CANCELLABLE_STATUSES,
+                    cancellation_error="Use the Cancel Booking action to cancel this booking.",
+                    success_message=None,
+                    user=user,
+                ),
+                400,
+            )
+
+        # RSB-10 / BR-01 and BR-04: bind the authenticated Customer ID and the
+        # current persisted state into the UPDATE. This blocks stale pages from
+        # cancelling after repair starts and makes Cancelled terminal here.
+        cursor = database.execute(
+            """
+            UPDATE bookings
+            SET status = 'Cancelled', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND customer_id = ?
+              AND status IN ('Submitted', 'Accepted')
+            """,
+            (booking_id, user["id"]),
+        )
+        database.commit()
+        if cursor.rowcount != 1:
+            current_booking = database.execute(
+                """
+                SELECT id, device_category, device_make_model, issue_description,
+                       status, created_at, updated_at
+                FROM bookings
+                WHERE id = ? AND customer_id = ?
+                """,
+                (booking_id, user["id"]),
+            ).fetchone()
+            if current_booking is None:
+                return render_template("booking_not_found.html"), 404
+            return (
+                render_template(
+                    "booking_detail.html",
+                    booking=current_booking,
+                    can_cancel=False,
+                    cancellation_error="This booking can no longer be cancelled.",
+                    success_message=None,
+                    user=user,
+                ),
+                409,
+            )
+
+        # created_at records the original request; cancellation is the latest
+        # persisted business event, so only updated_at changes alongside status.
+        return redirect(url_for("booking_detail", booking_id=booking_id, cancelled="1"))
 
     @app.get("/staff/bookings")
     def staff_booking_queue():

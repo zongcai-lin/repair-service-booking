@@ -12,8 +12,16 @@
       <h1>Booking #{{ booking['id'] }}</h1>
       <p class="muted">Signed in as {{ user['username'] }}</p>
 
-      <!-- RSB-7 displays persisted values only; there are deliberately no
-           cancellation or status-transition controls in this increment. -->
+      {% if success_message %}
+        <p class="success" role="status">{{ success_message }}</p>
+      {% endif %}
+
+      {% if cancellation_error %}
+        <p class="error" role="alert">{{ cancellation_error }}</p>
+      {% endif %}
+
+      <!-- RSB-7 still displays the shared persisted record. RSB-10 adds only
+           the narrowly eligible Customer cancellation control below. -->
       <dl class="booking-details">
         <div>
           <dt>Current Status</dt>
@@ -40,6 +48,18 @@
           <dd>{{ booking['updated_at'] }}</dd>
         </div>
       </dl>
+
+      {% if can_cancel %}
+        <!-- RSB-10 / BR-04: only Submitted and Accepted are shown as eligible.
+             The server re-checks ownership and status before changing data. -->
+        <form method="post" action="{{ url_for('cancel_booking', booking_id=booking['id']) }}">
+          <input type="hidden" name="action" value="cancel">
+          <button type="submit" class="cancel-button">Cancel Booking</button>
+        </form>
+      {% endif %}
+
+      <!-- In Progress protects active repair work; Completed, Rejected and
+           Cancelled are terminal states with no Customer cancellation action. -->
 
       <a class="secondary-action" href="{{ url_for('my_bookings') }}">Back to My Bookings</a>
     </main>
